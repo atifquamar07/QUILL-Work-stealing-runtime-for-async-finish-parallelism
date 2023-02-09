@@ -44,8 +44,10 @@
  *
  */
 
-#include "quill.h"
+#include <bits/stdc++.h>
 #include <sys/time.h>
+#include "quill.h"
+
 
 // Solutions for different board sizes
 int solutions[16] =
