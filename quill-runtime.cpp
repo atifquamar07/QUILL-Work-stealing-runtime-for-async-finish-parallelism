@@ -120,10 +120,11 @@ void quill::async(std::function<void()> &&lambda){
     lock_finish();
     finish_counter++;//concurrent access
     unlock_finish();
+    int id = *(int*)pthread_getspecific(key);
     int task_size = sizeof(lambda);
     // copy task on heap
     std::function<void()> *new_func = new std::function<void()> (lambda);
-    queues[][] = *(new_func);
+    // queues[id][] = *(new_func);
     //thread-safe push_task_to_runtime
     push_task_to_runtime(*(new_func));
     return;
