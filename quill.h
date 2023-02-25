@@ -1,5 +1,9 @@
 #include <bits/stdc++.h>
+#include <cstring>
 #include <functional>
+#include <stdlib.h>
+
+int num_workers = 1;
 
 class quill {
 

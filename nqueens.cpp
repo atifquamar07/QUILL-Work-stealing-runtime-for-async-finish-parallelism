@@ -47,6 +47,9 @@
 #include <bits/stdc++.h>
 #include <sys/time.h>
 #include "quill.h"
+#include <cstring>
+#include <functional>
+#include <stdlib.h>
 
 
 // Solutions for different board sizes
@@ -156,6 +159,7 @@ int main(int argc, char *argv[])
   // Timing for parallel run
   long end = get_usecs();
   dur = ((double)(end - start)) / 1000000;
+  dur/=num_workers;
   verify_queens(n);
   free((void *)atomic);
   printf("NQueens(%d) Time = %fsec\n", n, dur);
