@@ -122,8 +122,8 @@ class CircularDeque{
 };
 
 int status;
-const int num = 1;
-pthread_t tid[num];
+int num = num_workers; // change to 1
+pthread_t tid[10];
 pthread_mutex_t lock; 
 pthread_mutex_t queueLock; 
 static pthread_key_t key;
@@ -294,7 +294,11 @@ void *worker_routine(void *ptr) {
     int *id = (int*)ptr;
     // printf("Id generated in worker_rotuine id %d\n", (*id));
     // pthread_setspecific(key, (void*)&id);  // set thread-specific data
-    pthread_setspecific(key, ptr);  
+    int ret = pthread_setspecific(key, ptr);  
+    if(ret != 0){
+        perror("worker_routine, set problem");
+        exit(EXIT_FAILURE);
+    }
     while(shutdown == false) {
         find_and_execute_task();
     }
@@ -329,8 +333,16 @@ void quill::init_runtime(){
         queues[j] = CircularDeque();
     }
 
-    pthread_key_create(&key, NULL); //set_specific
-    pthread_setspecific(key, (void *)&(ids[0]));
+    int ret = pthread_key_create(&key, NULL); //vishesh btaega after if afetr 340
+    if(ret != 0){
+        perror("init_runtime, create  problem");
+        exit(EXIT_FAILURE);
+    }
+    ret = pthread_setspecific(key, (void *)&(ids[0]));
+    if(ret != 0){
+        perror("worker_routine, set problem");
+        exit(EXIT_FAILURE);
+    }
 
     for (i = 1; i < num; i++){
         status = pthread_create(&(tid[i]), NULL, worker_routine, (void *)(&(ids[i])));
