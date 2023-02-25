@@ -27,7 +27,5 @@ class quillRuntime {
 
         static void *worker_routine(void *ptr);
 
-
-
 };
 
