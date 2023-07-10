@@ -1,25 +1,16 @@
-#include <bits/stdc++.h>
-#include <cstring>
-#include <functional>
-#include <stdlib.h>
+#include<functional>
+#include<cstring>
 
-int num_workers = 1;
+namespace quill
+{
+    void init_runtime();
 
-class quill {
+    void finalize_runtime();
 
-    public:
+    void async(std::function<void()> &&lambda); //accepts a C++11 lambda function 
 
-        //intialize runtime variables
-        static void init_runtime();
+    void start_finish();
 
-        //accepts a C++11 lambda function
-        static void async(std::function<void()> &&lambda); 
+    void end_finish();
 
-        static void start_finish();
-
-        static void end_finish();
-
-        static void finalize_runtime();
-
-};
-
+} 

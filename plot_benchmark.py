@@ -1,8 +1,8 @@
 import matplotlib.pyplot as plt
 
 x = [1, 2, 3, 4]
-linear_speed = 15.305248
-y = [linear_speed/15.305248, linear_speed/13.446473, linear_speed/13.473794, linear_speed/13.394865]
+linear_speed = 16.355108
+y = [linear_speed/16.355108, linear_speed/7.300798, linear_speed/5.754703, linear_speed/4.617367]
 
 plt.figure()
 

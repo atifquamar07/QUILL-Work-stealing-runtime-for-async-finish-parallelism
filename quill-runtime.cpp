@@ -1,352 +1,282 @@
-#include <bits/stdc++.h>
-#include <pthread.h>
 #include "quill.h"
-#include <cstring>
-#include <functional>
-#include <stdlib.h>
-#include <time.h>
+#include "quill-runtime.h"
+#include <pthread.h>
 #include <unistd.h>
+#include <functional>
+#include <iomanip>
+#include <cstring>
+#include <time.h>
+#include <iostream>
+#include <stdlib.h>
+#include <stdio.h>
+#include <algorithm>
 
-// queue class
-class CircularDeque{
+int num_workers=1;
 
-    public:
-        std::function<void()> *arr;
-        int head;
-        int tail;
-        int capacity;
-        int size;
+typedef struct {
+    std::function<void()> *call_from_thread;
+} for_function;
 
-    public:
+#define MAX_THREADS 20
 
-        CircularDeque(){
-            capacity = 1000;
-            arr = new std::function<void()>[capacity];
-            head = capacity;
-            tail = capacity;
-            size = 0;
+class tasks_deque
+{
+private:
+    int id, deque_size, deque_head, deque_tail;
+    pthread_mutex_t deque_lock;
+    // void* deque_array[200];
+    std::function<void()> deque_array[200];
+
+public:
+    tasks_deque(int id_){
+        id=id_;
+        deque_size=200;
+        deque_head=deque_size;
+        deque_tail=deque_size;
+        for(int i=0; i<200; ++i){
+            deque_array[i]=NULL;
+        }
+        pthread_mutex_init(&deque_lock, NULL);
+    }
+
+    // void push_task(void* task){
+    void push_task(std::function<void()> task) {
+        if( ((deque_tail+1)%deque_size) == deque_head ) {   // Deque full
+            // Throw an error here
+            perror("Deque Full");
+            exit(1);
         }
 
-        bool isEmpty(){
-            return size == 0;
+        bool locking=false;
+        if(deque_head == deque_size) {     // If the Deque is empty
+            locking=true;
+            pthread_mutex_lock(&deque_lock);
+            deque_tail=deque_size-1;
         }
 
-        bool isFull(){
-            return size == capacity;
+        deque_head = (deque_head-1+deque_size)%deque_size;
+        deque_array[deque_head]=task;
+
+        if(locking) pthread_mutex_unlock(&deque_lock);
+    }
+
+    bool isEmpty(){
+        return deque_tail==deque_size;
+    }
+
+    // void* pop_task() {
+    std::function<void()> pop_task() {
+        // void* task=NULL;
+        std::function<void()> task=NULL;
+        pthread_mutex_lock(&deque_lock);
+        if(!isEmpty()){
+            task=deque_array[deque_head];
+            deque_array[deque_head]=NULL;
+            if(deque_head==deque_tail){     // If Deque becomes empty after pop
+                deque_head=deque_size;
+                deque_tail=deque_size;
+            }
+            else{
+                deque_head = (deque_head+1)%deque_size;
+            }
         }
+        pthread_mutex_unlock(&deque_lock);
 
-        void insertHead(std::function<void()> func){
+        return task;
+    } 
 
-            if (isFull()){
-                std::cout << "Deque is full\n";
-                // exit(EXIT_FAILURE);
-                return;
+    // void* steal_task() {
+    std::function<void()> steal_task() {
+
+        std::function<void()> task=NULL;
+        pthread_mutex_lock(&deque_lock);
+        if(!isEmpty()){
+            task=deque_array[deque_tail];
+            deque_array[deque_tail]=NULL;
+            if(deque_head==deque_tail){     // If Deque becomes empty after pop
+                deque_head=deque_size;
+                deque_tail=deque_size;
             }
-            // If queue is initially empty
-            if (head == capacity) {
-                head = capacity - 1;
-                tail = capacity - 1;
-                arr[head] = func;
-                size++;
-                return;
+            else{
+                deque_tail = (deque_tail-1+deque_size)%deque_size;
             }
-            // head is at first position of queue
-            else if (head == 0){
-                head = capacity - 1;
-            }
-            // decrement head end by '1'
-            else {
-                head = head - 1;
-            }
-            
-            // insert current element into Deque
-            arr[head] = func;
-            size++;
         }
+        pthread_mutex_unlock(&deque_lock);
 
-        std::function<void()> popHead(){
+        return task;
+    }
 
-            if (isEmpty()){
-                // std::cout << "Deque is empty\n";
-                return NULL;
-            }
-            std::function<void()> func = arr[head];
-            arr[head] == NULL;
-
-            if(head == tail){
-                head = capacity-1;
-                tail = capacity-1;
-            }
-            else {
-                // head was at last of queue
-                if(head == 0){
-                    head = capacity - 1;
-                }
-                // head was somewhere else
-                else {
-                    head++;
-                }
-            }
-
-            size--;
-            return func;
-        }
-
-        std::function<void()> popBack(){
-
-            if (isEmpty()){
-                // std::cout << "Deque is empty\n";
-                return NULL;
-            }
-            std::function<void()> func = arr[tail];
-            arr[tail] == NULL;
-
-            if(head == tail){
-                head = capacity-1;
-                tail = capacity-1;
-            }
-            else {
-                // Tail was at the beginning
-                if (tail == 0) {
-                    tail = capacity - 1;
-                }
-                else {
-                    tail--;
-                }
-            }
-            
-            size--;
-            return func;
-        }
-
+    int getId() {
+        return id;
+    }
 };
 
-int status;
-int num = num_workers; 
-pthread_t tid[10];
-pthread_mutex_t lock; 
-pthread_mutex_t queueLock; 
-static pthread_key_t key;
 
-CircularDeque *queues = (CircularDeque *)malloc(num*sizeof(CircularDeque));
+static pthread_key_t id_key;
 
-volatile bool shutdown = false;
-volatile int finish_counter = 0;
+volatile bool shutdown=false;
+volatile int finish_counter=0;
+int nums[MAX_THREADS] = {0};
+pthread_mutex_t finish_lock;
 
-void lock_finish(){
-    pthread_mutex_lock(&lock);
-}
+pthread_t thread_ids[MAX_THREADS];
 
-void unlock_finish(){
-    pthread_mutex_unlock(&lock);
-}
+tasks_deque *deque_ptrs;
 
-void lock_queue(){
-    pthread_mutex_lock(&queueLock);
-}
+// void* pop_task_from_runtime(){
+std::function<void()> pop_task_from_runtime() {
+    // void* task = NULL;
+    std::function<void()> task = NULL;
 
-void unlock_queue(){
-    pthread_mutex_unlock(&queueLock);
-}
-
-std::function<void()> grab_task_from_runtime(){
-
-    int *pid = (int*)pthread_getspecific(key);
-    int id;
-    if(pid != NULL){
-        id = *pid;
+    // Get the ID of the thread on which the task is running
+    int *thread_id_ptr = (int*)pthread_getspecific(id_key); // get the thread's ID
+    int thread_id;
+    if(thread_id_ptr!=NULL){
+        thread_id=(*thread_id_ptr);
     }
-    else {
-        return NULL;
+    else{
+        printf("Problem Here\n");
     }
 
-    std::function<void()> func = NULL;
-
-    // popping from head is lockless operation
-    if(!queues[id].isEmpty()){
-
-        func = queues[id].popHead();
-        if(func != NULL){
-            pthread_mutex_unlock(&queueLock);
-            return func;
-        }
-        else {
-            printf("popHead() is trying to return NULL function in grab_task_from_runtime()\n");
-
-        }
+    // Checking if pop is possible
+    task = deque_ptrs[thread_id].pop_task();
+    if(task!=NULL) {
+        return task;
     }
 
-    // try to steal
+    // Attempting steal
     srand(time(0));
-    while (1){
-        
-        int randNum = (rand()%(num));
-
-        lock_queue();
-
-        if(queues[randNum].isEmpty() || randNum == id){
-            unlock_queue();
-            continue;
-        }
-        if(!queues[randNum].isEmpty()){
-            func = queues[randNum].popBack();
-            if(func != NULL){
-                unlock_queue();
-                break;
-            }
-            else {
-                printf("popBack() is trying to return NULL function in grab_task_from_runtime()\n");
-            } 
-        }
-        else {
-            unlock_queue();
-            continue;
-        } 
-
-        unlock_queue();
+    int size = num_workers;
+    int random_id = thread_id;
+    while(random_id==thread_id) {   // Loop ensure the random number is not equal to current thread's id
+        random_id = rand()%size;
     }
-    unlock_queue();
+    task = deque_ptrs[random_id].steal_task();
 
-    return func;
-    
-}
-
-void push_task_to_runtime(std::function<void()> new_func, int id){
-
-    if(queues[id].isFull()){
-        printf("Queue is full, cannot push_task_to_runtime\n");
-        exit(EXIT_FAILURE);
-    }
-    else {
-        queues[id].insertHead(new_func);
-    }
-
-}
-
-void execute_task(std::function<void()> task){
-
-    if(task != NULL){
-        task();
-    }
-
+    return task;
 }
 
 void find_and_execute_task() {
 
-    std::function<void()> task = grab_task_from_runtime();
+    std::function<void()> task = pop_task_from_runtime();
 
-    if(task != NULL) {
-        execute_task(task);
-        lock_finish();
+    if(task!=NULL){
+
+        int t = *((int*)pthread_getspecific(id_key));
+        task();
+
+        pthread_mutex_lock(&finish_lock);
         finish_counter--;
-        unlock_finish();
-    }
-
-}
-
-void *worker_routine(void *ptr) {
-
-    int *id = (int*)ptr;
-    int ret = pthread_setspecific(key, ptr);  
-    if(ret != 0){
-        perror("worker_routine, set problem");
-        exit(EXIT_FAILURE);
-    }
-    while(shutdown == false) {
-        find_and_execute_task();
+        pthread_mutex_unlock(&finish_lock);
     }
     
-    return NULL;
-}
-
-// initialize the runtime
-void quill::init_runtime(){
-
-    if(getenv("QUILL_WORKERS")!=NULL){
-        num_workers = atoi(getenv("QUILL_WORKERS"));
-    }
-
-    int i;
-    int *ids;
-    ids=(int*)malloc(num*sizeof(int));
-    pthread_mutex_init(&lock, NULL);
-    pthread_mutex_init(&queueLock, NULL);
-
-
-    for (int j = 0; j < num; j++){
-        ids[j] = j;
-    }
-
-    for (int j = 0; j < num; j++){
-        queues[j] = CircularDeque();
-    }
-
-    int ret = pthread_key_create(&key, NULL);
-    if(ret != 0){
-        perror("init_runtime, create  problem");
-        exit(EXIT_FAILURE);
-    }
-    ret = pthread_setspecific(key, (void *)&(ids[0]));
-    if(ret != 0){
-        perror("worker_routine, set problem");
-        exit(EXIT_FAILURE);
-    }
-
-    for (i = 1; i < num; i++){
-        status = pthread_create(&(tid[i]), NULL, worker_routine, (void *)(&(ids[i])));
-        if(status == -1){
-            printf("Error in creation of thread %d\n", i);
-        }
-    }
-    
-}
-
-//accepts a C++11 lambda function
-void quill::async(std::function<void()> &&lambda){
-
-    lock_finish();
-    finish_counter++;  //concurrent access
-    unlock_finish();
-
-    int *pid = ((int*)(pthread_getspecific(key)));
-    if(pid == NULL){
-        printf("Error in push task\n");
-        exit(EXIT_FAILURE);
-    }
-    int id = *pid;
-
-    //thread-safe push_task_to_runtime
-    push_task_to_runtime(lambda, id);
     return;
 }
 
-void quill::start_finish(){
+void *worker_routine(void *arg){
 
-    lock_finish();
-    finish_counter = 0; //reset
-    unlock_finish();
+    pthread_setspecific(id_key, arg);
 
-}
-
-void quill::end_finish(){
-
-    while(finish_counter != 0){
+    while(!shutdown) {
         find_and_execute_task();
     }
 
+    int *thread_id = (int*)pthread_getspecific(id_key); // get the thread's ID
+
+    return NULL;
+}
+
+void quill::init_runtime() {
+    // printf("Here 1\n");
+    // int size = thread_pool_size();
+    if (getenv("QUILL_WORKERS") != NULL) num_workers=atoi(getenv("QUILL_WORKERS"));
+    else{
+        printf("Defaulting to 1 thread in thread pool\n");
+    }
+
+    // size is the number of worker threads in the thread pool
+    int size=num_workers;
+    for(int i=0; i<size; ++i) nums[i]=i;    // This loop will run from 0 to size as I want to initialize the array
+
+    // pthread-specific key creation:
+    pthread_key_create(&id_key, NULL);
+
+    // Set thread id for main thread:
+    pthread_setspecific(id_key, (void*)&(nums[0]));
+
+    for(int i=1; i<size; ++i){  // Creating n-1 threads
+        // printf("Here 2\n");
+        pthread_create(&(thread_ids[i]), NULL, worker_routine, (void*)&(nums[i]));
+    }
+
+    // Instantiate the class objects
+    deque_ptrs = (tasks_deque*) malloc(size*sizeof(tasks_deque));
+    for(int i=0; i<size; ++i){
+        deque_ptrs[i] = tasks_deque(i);
+    }
+
+}
+
+void quill::start_finish() {
+    finish_counter=0;
+
+    // Initializing the mutex lock for finish_counter variable
+    int ret = pthread_mutex_init(&finish_lock, NULL);
+    if (ret != 0) {
+        perror("Error in Finish Mutex Lock Initialization");
+        exit(1);
+    }
+}
+
+
+void quill::async(std::function<void()> &&lambda) {
+    
+    pthread_mutex_lock(&finish_lock);
+    finish_counter++;
+    pthread_mutex_unlock(&finish_lock);
+
+    
+    // Get the ID of the thread on which the task is running
+    int *thread_id_ptr = (int*)pthread_getspecific(id_key); // get the thread's ID
+    int thread_id=-1;
+    if(thread_id_ptr!=NULL){
+        thread_id = (*thread_id_ptr);
+    }
+    else{
+        printf("Problem Here Too\n");
+        exit(1);
+    }
+    
+    if(thread_id==-1){
+        printf("Faulty thread id\n");
+        exit(1);
+    }
+    // Push the task on array
+    // for_function func_arg;
+    // func_arg.call_from_thread = new std::function<void()>(lambda);
+    // deque_ptrs[thread_id].push_task((void*) &func_arg);
+
+    deque_ptrs[thread_id].push_task(*(new std::function<void()> (lambda)));
+
+    return;
+}
+
+void quill::end_finish() {
+    // printf("No of remaining tasks = %d\n", finish_counter);
+    while(finish_counter!=0) {
+        find_and_execute_task();
+    }
 }
 
 void quill::finalize_runtime(){
 
     shutdown = true;
-    
-    for(int i = 1; i < num; i++) {
-        pthread_join(tid[i], NULL);
+    int size =num_workers;
+
+    for(int i=1; i<size; ++i){  // Creating n-1 threads
+        pthread_join(thread_ids[i], NULL);
     }
 
-    pthread_key_delete(key);
-    exit(EXIT_SUCCESS);
-    return;
-
+    free(deque_ptrs);
+    pthread_key_delete(id_key);
 }
-
