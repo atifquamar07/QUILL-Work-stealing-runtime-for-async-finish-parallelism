@@ -15,6 +15,7 @@ A library-based, new concurrency platform supporting async-finish task paralleli
 
 ## Graph between No. of QUILL_WOKERS vs Execution Time
 The graph clearly shows that we achieved linear speedup upon increasing the no. of QUILL_WORKERS/Threads.
+#### *Speedup = T(Series) / T(Parallel)*
 
 ![image](https://github.com/atifquamar07/QUILL-Work-stealing-runtime-for-async-finish-parallelism/assets/88545624/c9fe5a43-c7e2-42de-b69f-74a73aac1680)
 
